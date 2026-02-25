@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentQuote — Send quotes. Get paid.</title>
+  <meta name="description" content="The simplest way to send trackable quotes that get accepted and paid. Built for freelancers, contractors, and small service businesses.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0b;
+      --surface: #141416;
+      --surface2: #1c1c20;
+      --border: #2a2a30;
+      --border-light: #3a3a42;
+      --text: #f0f0f2;
+      --text-muted: #8a8a96;
+      --text-dim: #5a5a66;
+      --accent: #22c55e;
+      --accent-hover: #16a34a;
+      --accent-subtle: rgba(34, 197, 94, 0.1);
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --blue: #3b82f6;
+      --font: 'DM Sans', -apple-system, sans-serif;
+      --mono: 'DM Mono', monospace;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--border-light); background: var(--border); }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { opacity: 0.9; }
+    .btn-ghost { background: transparent; color: var(--text-muted); }
+    .btn-ghost:hover { color: var(--text); }
+    .btn-lg { padding: 14px 28px; font-size: 16px; border-radius: var(--radius); }
+    .btn-sm { padding: 6px 14px; font-size: 12px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    input, textarea, select {
+      font-family: var(--font);
+      font-size: 14px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 80px; }
+    label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-draft { background: var(--surface2); color: var(--text-dim); }
+    .badge-sent { background: rgba(59,130,246,0.15); color: var(--blue); }
+    .badge-accepted { background: rgba(34,197,94,0.15); color: var(--accent); }
+    .badge-paid { background: var(--accent); color: #000; }
+    .badge-viewed { background: rgba(245,158,11,0.15); color: var(--warn); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.3s ease forwards; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useCallback, createContext, useContext, useMemo } = React;
+
+    // =====================
+    // API HELPER
+    // =====================
+    const API = (typeof window !== 'undefined' && window.location.port === '5173')
+      ? 'http://localhost:3001/api'
+      : '/api';
+
+    async function api(path, opts = {}) {
+      const token = localStorage.getItem('sq_token');
+      const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`${API}${path}`, { ...opts, headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    function formatCents(cents) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+    }
+
+    function timeAgo(date) {
+      const seconds = Math.floor((Date.now() - new Date(date + 'Z').getTime()) / 1000);
+      if (seconds < 60) return 'just now';
+      if (seconds < 3600) return `${Math.floor(seconds/60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds/3600)}h ago`;
+      return `${Math.floor(seconds/86400)}d ago`;
+    }
+
+    // =====================
+    // AUTH CONTEXT
+    // =====================
+    const AuthCtx = createContext();
+
+    function AuthProvider({ children }) {
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const token = localStorage.getItem('sq_token');
+        if (!token) { setLoading(false); return; }
+        api('/auth/me').then(d => setUser(d.user)).catch(() => {
+          localStorage.removeItem('sq_token');
+        }).finally(() => setLoading(false));
+      }, []);
+
+      const login = async (email, password) => {
+        const d = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+        localStorage.setItem('sq_token', d.token);
+        setUser(d.user);
+      };
+
+      const register = async (email, password, businessName) => {
+        const d = await api('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, businessName }) });
+        localStorage.setItem('sq_token', d.token);
+        setUser(d.user);
+      };
+
+      const logout = () => {
+        localStorage.removeItem('sq_token');
+        setUser(null);
+      };
+
+      return <AuthCtx.Provider value={{ user, loading, login, register, logout }}>{children}</AuthCtx.Provider>;
+    }
+
+    // =====================
+    // SIMPLE ROUTER
+    // =====================
+    function useRoute() {
+      const [path, setPath] = useState(window.location.pathname);
+      useEffect(() => {
+        const handler = () => setPath(window.location.pathname);
+        window.addEventListener('popstate', handler);
+        return () => window.removeEventListener('popstate', handler);
+      }, []);
+
+      const navigate = (to) => {
+        window.history.pushState({}, '', to);
+        setPath(to);
+      };
+
+      return { path, navigate };
+    }
+
+    // =====================
+    // LANDING PAGE
+    // =====================
+    function LandingPage({ navigate }) {
+      const { user } = useContext(AuthCtx);
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          {/* Nav */}
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 40px', maxWidth: 1200, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 24 }}>⚡</span>
+              <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px' }}>SentQuote</span>
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {user ? (
+                <button className="btn btn-primary" onClick={() => navigate('/dashboard')}>Dashboard →</button>
+              ) : (
+                <>
+                  <button className="btn btn-ghost" onClick={() => navigate('/login')}>Log in</button>
+                  <button className="btn btn-primary" onClick={() => navigate('/register')}>Start free →</button>
+                </>
+              )}
+            </div>
+          </nav>
+
+          {/* Hero */}
+          <div className="fade-in" style={{ textAlign: 'center', maxWidth: 720, margin: '80px auto 0', padding: '0 24px' }}>
+            <div style={{ display: 'inline-block', padding: '6px 16px', borderRadius: 20, background: 'var(--accent-subtle)', color: 'var(--accent)', fontSize: 13, fontWeight: 600, marginBottom: 24 }}>
+              Stop losing deals in email black holes
+            </div>
+            <h1 style={{ fontSize: 'clamp(36px, 5vw, 64px)', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-2px', marginBottom: 20 }}>
+              Send quotes.<br/>Know when they're read.<br/><span style={{ color: 'var(--accent)' }}>Get paid.</span>
+            </h1>
+            <p style={{ fontSize: 18, color: 'var(--text-muted)', maxWidth: 520, margin: '0 auto 36px', lineHeight: 1.7 }}>
+              Create a quote in 60 seconds, get real-time notifications when clients view it, and let them accept & pay with one click. No more wondering.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-lg" onClick={() => navigate('/register')}>
+                Create your first quote — free
+              </button>
+            </div>
+            <p style={{ marginTop: 16, color: 'var(--text-dim)', fontSize: 13 }}>No credit card required · 5 free quotes/month</p>
+          </div>
+
+          {/* How it works */}
+          <div style={{ maxWidth: 960, margin: '120px auto 0', padding: '0 24px' }}>
+            <h2 style={{ textAlign: 'center', fontSize: 32, fontWeight: 700, letterSpacing: '-1px', marginBottom: 60 }}>
+              Three steps. That's it.
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
+              {[
+                { icon: '📝', title: 'Build your quote', desc: 'Add line items, set a deposit amount, customize notes. Takes 60 seconds.' },
+                { icon: '🔗', title: 'Share the link', desc: 'Send your client a clean, professional quote link. You get pinged the instant they open it.' },
+                { icon: '💰', title: 'Get accepted & paid', desc: 'Client clicks Accept, pays the deposit via Stripe. Money in your account. Done.' },
+              ].map((s, i) => (
+                <div key={i} className="card fade-in" style={{ animationDelay: `${i * 0.1}s` }}>
+                  <div style={{ fontSize: 36, marginBottom: 16 }}>{s.icon}</div>
+                  <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>{s.title}</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>{s.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Features */}
+          <div style={{ maxWidth: 960, margin: '100px auto 0', padding: '0 24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 32 }}>
+              {[
+                { icon: '👁️', label: 'View tracking', desc: 'See exactly when and how many times your quote was viewed' },
+                { icon: '🔔', label: 'Instant notifications', desc: 'Get notified the second your client opens the quote' },
+                { icon: '⏰', label: 'Auto follow-up', desc: 'Scheduled reminders go out automatically if no response' },
+                { icon: '✅', label: 'One-click accept', desc: 'Clients accept and sign off right from the quote page' },
+                { icon: '💳', label: 'Deposit collection', desc: 'Collect upfront deposits via Stripe right from the quote' },
+                { icon: '📊', label: 'Pipeline view', desc: 'See all your quotes in one dashboard: sent, viewed, paid' },
+              ].map((f, i) => (
+                <div key={i} style={{ padding: '16px 0' }}>
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>{f.icon}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{f.label}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{f.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Pricing */}
+          <div id="pricing" style={{ maxWidth: 800, margin: '120px auto', padding: '0 24px' }}>
+            <h2 style={{ textAlign: 'center', fontSize: 32, fontWeight: 700, letterSpacing: '-1px', marginBottom: 48 }}>
+              Simple pricing
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
+              <div className="card">
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Free</div>
+                <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: -2 }}>$0<span style={{ fontSize: 16, color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span></div>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: '12px 0 20px' }}>Get started, see the magic</p>
+                <ul style={{ listStyle: 'none', fontSize: 14 }}>
+                  {['5 quotes per month', 'View tracking', 'Quote link sharing', 'Basic dashboard'].map(f => (
+                    <li key={f} style={{ padding: '6px 0', color: 'var(--text-muted)' }}>✓ {f}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="card" style={{ border: '2px solid var(--accent)', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: -12, right: 20, background: 'var(--accent)', color: '#000', padding: '4px 12px', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>POPULAR</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Pro</div>
+                <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: -2 }}>$29<span style={{ fontSize: 16, color: 'var(--text-muted)', fontWeight: 400 }}>/mo</span></div>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: '12px 0 20px' }}>Everything you need to close deals</p>
+                <ul style={{ listStyle: 'none', fontSize: 14 }}>
+                  {['Unlimited quotes', 'Stripe payment collection', 'Auto follow-up emails', 'Priority notifications', 'Custom branding', 'Export & analytics'].map(f => (
+                    <li key={f} style={{ padding: '6px 0' }}>✓ {f}</li>
+                  ))}
+                </ul>
+                <button className="btn btn-primary" style={{ width: '100%', marginTop: 20 }} onClick={() => navigate('/register')}>Start free trial →</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <footer style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-dim)', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginBottom: 16 }}>
+              <a href="#" style={{ color: 'var(--text-dim)' }}>Privacy</a>
+              <a href="#" style={{ color: 'var(--text-dim)' }}>Terms</a>
+              <a href="mailto:hello@sentquote.com" style={{ color: 'var(--text-dim)' }}>Contact</a>
+            </div>
+            © 2026 SentQuote. All rights reserved.
+          </footer>
+        </div>
+      );
+    }
+
+    // =====================
+    // AUTH PAGES
+    // =====================
+    function AuthPage({ mode, navigate }) {
+      const { login, register } = useContext(AuthCtx);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [businessName, setBusinessName] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          if (mode === 'register') {
+            await register(email, password, businessName);
+          } else {
+            await login(email, password);
+          }
+          navigate('/dashboard');
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="card fade-in" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ textAlign: 'center', marginBottom: 32 }}>
+              <span style={{ fontSize: 32, cursor: 'pointer' }} onClick={() => navigate('/')}>⚡</span>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginTop: 8 }}>
+                {mode === 'register' ? 'Create your account' : 'Welcome back'}
+              </h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
+                {mode === 'register' ? 'Start sending trackable quotes in 60 seconds' : 'Log in to your SentQuote dashboard'}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {mode === 'register' && (
+                <div>
+                  <label>Business name</label>
+                  <input type="text" value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Acme Services" />
+                </div>
+              )}
+              <div>
+                <label>Email</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" required />
+              </div>
+              <div>
+                <label>Password</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
+              </div>
+              {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+              <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+                {loading ? 'Please wait...' : mode === 'register' ? 'Create account' : 'Log in'}
+              </button>
+            </form>
+
+            <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14, color: 'var(--text-muted)' }}>
+              {mode === 'register' ? (
+                <>Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Log in</a></>
+              ) : (
+                <>No account yet? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/register'); }}>Sign up free</a></>
+              )}
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // DASHBOARD
+    // =====================
+    function Dashboard({ navigate }) {
+      const { user, logout } = useContext(AuthCtx);
+      const [quotes, setQuotes] = useState([]);
+      const [stats, setStats] = useState(null);
+      const [events, setEvents] = useState([]);
+      const [view, setView] = useState('list');
+
+      useEffect(() => {
+        api('/quotes').then(d => setQuotes(d.quotes)).catch(console.error);
+        api('/stats').then(d => { setStats(d.stats); setEvents(d.recentEvents); }).catch(console.error);
+      }, []);
+
+      const statusBadge = (status) => {
+        const map = { draft: 'badge-draft', sent: 'badge-sent', accepted: 'badge-accepted', paid: 'badge-paid' };
+        return <span className={`badge ${map[status] || 'badge-draft'}`}>{status}</span>;
+      };
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          {/* Top bar */}
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
+              <span style={{ fontSize: 20 }}>⚡</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>SentQuote</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.email}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }}>Log out</button>
+            </div>
+          </nav>
+
+          <div style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 24px' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+              <div>
+                <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>Dashboard</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>{user?.businessName || 'Your quotes at a glance'}</p>
+              </div>
+              <button className="btn btn-primary" onClick={() => navigate('/quotes/new')}>+ New Quote</button>
+            </div>
+
+            {/* Stats */}
+            {stats && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, marginBottom: 32 }}>
+                {[
+                  { label: 'Total Sent', value: stats.sentQuotes, color: 'var(--blue)' },
+                  { label: 'Accepted', value: stats.acceptedQuotes, color: 'var(--accent)' },
+                  { label: 'Paid', value: stats.paidQuotes, color: 'var(--accent)' },
+                  { label: 'Total Views', value: stats.totalViews, color: 'var(--warn)' },
+                  { label: 'Revenue', value: formatCents(stats.totalRevenue), color: 'var(--accent)' },
+                ].map((s, i) => (
+                  <div key={i} className="card" style={{ textAlign: 'center', padding: 20 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{s.label}</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--mono)', color: s.color }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Activity feed */}
+            {events.length > 0 && (
+              <div className="card" style={{ marginBottom: 24, padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 12 }}>Recent Activity</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {events.slice(0, 8).map((ev, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: ev.event_type === 'paid' ? 'var(--accent)' : ev.event_type === 'viewed' ? 'var(--warn)' : ev.event_type === 'accepted' ? 'var(--accent)' : 'var(--blue)', flexShrink: 0 }} />
+                      <span style={{ color: 'var(--text)' }}>
+                        <strong>{ev.client_name}</strong>
+                        <span style={{ color: 'var(--text-muted)' }}> {ev.event_type} </span>
+                        {ev.title}
+                      </span>
+                      <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>{timeAgo(ev.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Quotes list */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600 }}>Quotes</h2>
+            </div>
+
+            {quotes.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: '60px 24px' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>📝</div>
+                <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No quotes yet</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 20 }}>Create your first quote and start getting paid faster.</p>
+                <button className="btn btn-primary" onClick={() => navigate('/quotes/new')}>Create your first quote</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {quotes.map(q => (
+                  <div
+                    key={q.id}
+                    className="card"
+                    style={{ padding: '16px 20px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+                    onClick={() => navigate(`/quotes/${q.id}`)}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontWeight: 600 }}>{q.title}</span>
+                          {statusBadge(q.status)}
+                          {q.view_count > 0 && q.status === 'sent' && (
+                            <span className="badge badge-viewed">👁️ {q.view_count}</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+                          {q.client_name} · {q.client_email}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 18 }}>{formatCents(q.total)}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{timeAgo(q.created_at)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // QUOTE BUILDER
+    // =====================
+    function QuoteBuilder({ navigate, quoteId }) {
+      const [form, setForm] = useState({
+        clientName: '', clientEmail: '', title: '', description: '',
+        lineItems: [{ description: '', quantity: 1, unitPrice: 0 }],
+        taxRate: 0, depositPercent: 50, validDays: 30, notes: ''
+      });
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        if (quoteId && quoteId !== 'new') {
+          api(`/quotes/${quoteId}`).then(d => {
+            const q = d.quote;
+            setForm({
+              clientName: q.client_name, clientEmail: q.client_email,
+              title: q.title, description: q.description,
+              lineItems: q.lineItems.map(li => ({ description: li.description, quantity: li.quantity, unitPrice: li.unitPrice })),
+              taxRate: q.tax_rate, depositPercent: q.deposit_percent,
+              validDays: 30, notes: q.notes
+            });
+          }).catch(console.error);
+        }
+      }, [quoteId]);
+
+      const addLine = () => setForm(f => ({ ...f, lineItems: [...f.lineItems, { description: '', quantity: 1, unitPrice: 0 }] }));
+      const removeLine = (i) => setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }));
+      const updateLine = (i, field, val) => {
+        setForm(f => ({
+          ...f,
+          lineItems: f.lineItems.map((li, idx) => idx === i ? { ...li, [field]: val } : li)
+        }));
+      };
+
+      const subtotal = form.lineItems.reduce((s, li) => s + (li.quantity * li.unitPrice), 0);
+      const taxAmount = subtotal * form.taxRate / 100;
+      const total = subtotal + taxAmount;
+      const deposit = total * form.depositPercent / 100;
+
+      const handleSave = async (andSend = false) => {
+        setError('');
+        setSaving(true);
+        try {
+          const payload = { ...form };
+          let quote;
+          if (quoteId && quoteId !== 'new') {
+            const d = await api(`/quotes/${quoteId}`, { method: 'PUT', body: JSON.stringify(payload) });
+            quote = d.quote;
+          } else {
+            const d = await api('/quotes', { method: 'POST', body: JSON.stringify(payload) });
+            quote = d.quote;
+          }
+          if (andSend) {
+            await api(`/quotes/${quote.id}/send`, { method: 'POST' });
+          }
+          navigate(`/quotes/${quote.id}`);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
+            <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>← Back</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" onClick={() => handleSave(false)} disabled={saving}>Save draft</button>
+              <button className="btn btn-primary" onClick={() => handleSave(true)} disabled={saving}>Save & Send →</button>
+            </div>
+          </nav>
+
+          <div className="fade-in" style={{ maxWidth: 700, margin: '32px auto', padding: '0 24px' }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>{quoteId === 'new' ? 'New Quote' : 'Edit Quote'}</h1>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Client details</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <label>Client name *</label>
+                  <input value={form.clientName} onChange={e => setForm(f => ({...f, clientName: e.target.value}))} placeholder="Jane Smith" />
+                </div>
+                <div>
+                  <label>Client email *</label>
+                  <input type="email" value={form.clientEmail} onChange={e => setForm(f => ({...f, clientEmail: e.target.value}))} placeholder="jane@company.com" />
+                </div>
+              </div>
+            </div>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Quote details</h3>
+              <div style={{ marginBottom: 16 }}>
+                <label>Title *</label>
+                <input value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} placeholder="Website Redesign" />
+              </div>
+              <div>
+                <label>Description</label>
+                <textarea value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} placeholder="Brief description of the project scope..." />
+              </div>
+            </div>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Line items</h3>
+              {form.lineItems.map((li, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 120px 40px', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                  <div>
+                    {i === 0 && <label>Description</label>}
+                    <input value={li.description} onChange={e => updateLine(i, 'description', e.target.value)} placeholder="Service or item" />
+                  </div>
+                  <div>
+                    {i === 0 && <label>Qty</label>}
+                    <input type="number" min="1" value={li.quantity} onChange={e => updateLine(i, 'quantity', Number(e.target.value))} />
+                  </div>
+                  <div>
+                    {i === 0 && <label>Unit price ($)</label>}
+                    <input type="number" min="0" step="0.01" value={li.unitPrice} onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} />
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => removeLine(i)} style={{ padding: '10px 8px' }}>✕</button>
+                </div>
+              ))}
+              <button className="btn btn-secondary btn-sm" onClick={addLine} style={{ marginTop: 8 }}>+ Add line item</button>
+            </div>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Options</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                <div>
+                  <label>Tax rate (%)</label>
+                  <input type="number" min="0" step="0.1" value={form.taxRate} onChange={e => setForm(f => ({...f, taxRate: Number(e.target.value)}))} />
+                </div>
+                <div>
+                  <label>Deposit (%)</label>
+                  <input type="number" min="0" max="100" value={form.depositPercent} onChange={e => setForm(f => ({...f, depositPercent: Number(e.target.value)}))} />
+                </div>
+                <div>
+                  <label>Valid for (days)</label>
+                  <input type="number" min="1" value={form.validDays} onChange={e => setForm(f => ({...f, validDays: Number(e.target.value)}))} />
+                </div>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <label>Notes for client</label>
+                <textarea value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} placeholder="Payment terms, timeline, etc..." />
+              </div>
+            </div>
+
+            {/* Totals preview */}
+            <div className="card" style={{ marginBottom: 40 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 14, color: 'var(--text-muted)' }}>
+                <span>Subtotal</span><span style={{ fontFamily: 'var(--mono)' }}>${subtotal.toFixed(2)}</span>
+              </div>
+              {form.taxRate > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 14, color: 'var(--text-muted)' }}>
+                  <span>Tax ({form.taxRate}%)</span><span style={{ fontFamily: 'var(--mono)' }}>${taxAmount.toFixed(2)}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', fontSize: 18, fontWeight: 700, borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                <span>Total</span><span style={{ fontFamily: 'var(--mono)' }}>${total.toFixed(2)}</span>
+              </div>
+              {form.depositPercent > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 14, color: 'var(--accent)' }}>
+                  <span>Deposit due ({form.depositPercent}%)</span><span style={{ fontFamily: 'var(--mono)' }}>${deposit.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            {error && <div style={{ color: 'var(--danger)', marginBottom: 20, fontSize: 14 }}>{error}</div>}
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // QUOTE DETAIL (owner view)
+    // =====================
+    function QuoteDetail({ navigate, quoteId }) {
+      const [quote, setQuote] = useState(null);
+      const [events, setEvents] = useState([]);
+      const [copied, setCopied] = useState(false);
+
+      useEffect(() => {
+        api(`/quotes/${quoteId}`).then(d => { setQuote(d.quote); setEvents(d.events); }).catch(console.error);
+      }, [quoteId]);
+
+      if (!quote) return <div style={{ padding: 40, textAlign: 'center' }} className="pulse">Loading...</div>;
+
+      const quoteUrl = `${window.location.origin}/q/${quote.slug}`;
+
+      const copyLink = () => {
+        navigator.clipboard.writeText(quoteUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      };
+
+      const handleSend = async () => {
+        await api(`/quotes/${quote.id}/send`, { method: 'POST' });
+        const d = await api(`/quotes/${quoteId}`);
+        setQuote(d.quote);
+        setEvents(d.events);
+      };
+
+      const handleDelete = async () => {
+        if (confirm('Delete this quote?')) {
+          await api(`/quotes/${quoteId}`, { method: 'DELETE' });
+          navigate('/dashboard');
+        }
+      };
+
+      const statusBadge = (status) => {
+        const map = { draft: 'badge-draft', sent: 'badge-sent', accepted: 'badge-accepted', paid: 'badge-paid' };
+        return <span className={`badge ${map[status]}`}>{status}</span>;
+      };
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
+            <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>← Dashboard</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {quote.status === 'draft' && <button className="btn btn-secondary" onClick={() => navigate(`/quotes/${quoteId}/edit`)}>Edit</button>}
+              {quote.status === 'draft' && <button className="btn btn-primary" onClick={handleSend}>Send Quote →</button>}
+              <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={handleDelete}>Delete</button>
+            </div>
+          </nav>
+
+          <div className="fade-in" style={{ maxWidth: 700, margin: '32px auto', padding: '0 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+              <h1 style={{ fontSize: 24, fontWeight: 700 }}>{quote.title}</h1>
+              {statusBadge(quote.status)}
+            </div>
+
+            {/* Share link */}
+            {quote.status !== 'draft' && (
+              <div className="card" style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <input value={quoteUrl} readOnly style={{ flex: 1, fontFamily: 'var(--mono)', fontSize: 13 }} />
+                <button className="btn btn-secondary btn-sm" onClick={copyLink}>{copied ? '✓ Copied!' : 'Copy link'}</button>
+                <a href={quoteUrl} target="_blank" className="btn btn-ghost btn-sm">Open ↗</a>
+              </div>
+            )}
+
+            {/* Tracking stats */}
+            {quote.status !== 'draft' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+                <div className="card" style={{ textAlign: 'center', padding: 16 }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--warn)' }}>{quote.view_count || 0}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Views</div>
+                </div>
+                <div className="card" style={{ textAlign: 'center', padding: 16 }}>
+                  <div style={{ fontSize: 14, fontFamily: 'var(--mono)', color: quote.first_viewed_at ? 'var(--accent)' : 'var(--text-dim)' }}>
+                    {quote.first_viewed_at ? timeAgo(quote.first_viewed_at) : 'Not yet'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>First viewed</div>
+                </div>
+                <div className="card" style={{ textAlign: 'center', padding: 16 }}>
+                  <div style={{ fontSize: 14, fontFamily: 'var(--mono)', color: quote.last_viewed_at ? 'var(--warn)' : 'var(--text-dim)' }}>
+                    {quote.last_viewed_at ? timeAgo(quote.last_viewed_at) : 'Not yet'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last viewed</div>
+                </div>
+              </div>
+            )}
+
+            {/* Quote details */}
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>Client</div>
+              <div style={{ fontWeight: 600 }}>{quote.client_name}</div>
+              <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>{quote.client_email}</div>
+
+              {quote.description && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>Description</div>
+                  <div style={{ fontSize: 14 }}>{quote.description}</div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 20 }}>
+                {quote.lineItems.map((li, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 14 }}>{li.description}</span>
+                    <span style={{ fontSize: 14, fontFamily: 'var(--mono)', color: 'var(--text-muted)' }}>
+                      {li.quantity} × ${li.unitPrice.toFixed(2)} = ${(li.quantity * li.unitPrice).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', fontWeight: 700, fontSize: 18 }}>
+                  <span>Total</span>
+                  <span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.total)}</span>
+                </div>
+                {quote.deposit_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--accent)' }}>
+                    <span>Deposit ({quote.deposit_percent}%)</span>
+                    <span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.deposit_amount)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Event timeline */}
+            {events.length > 0 && (
+              <div className="card">
+                <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Activity timeline</h3>
+                {events.map((ev, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: i < events.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <span style={{
+                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                      background: ev.event_type === 'paid' ? 'var(--accent)' : ev.event_type === 'viewed' ? 'var(--warn)' : ev.event_type === 'accepted' ? 'var(--accent)' : 'var(--blue)'
+                    }} />
+                    <span style={{ fontSize: 13, textTransform: 'capitalize' }}>{ev.event_type}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-dim)' }}>{timeAgo(ev.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // PUBLIC QUOTE PAGE (client-facing)
+    // =====================
+    function PublicQuote({ slug }) {
+      const [quote, setQuote] = useState(null);
+      const [error, setError] = useState('');
+      const [accepting, setAccepting] = useState(false);
+      const [paying, setPaying] = useState(false);
+
+      const params = new URLSearchParams(window.location.search);
+      const justPaid = params.get('paid') === 'true';
+
+      useEffect(() => {
+        fetch(`${API}/public/quotes/${slug}`)
+          .then(r => r.json())
+          .then(d => { if (d.error) setError(d.error); else setQuote(d.quote); })
+          .catch(() => setError('Failed to load quote'));
+      }, [slug]);
+
+      const handleAccept = async () => {
+        setAccepting(true);
+        try {
+          await fetch(`${API}/public/quotes/${slug}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+          setQuote(q => ({ ...q, status: 'accepted' }));
+        } catch (err) {
+          alert('Failed to accept');
+        } finally {
+          setAccepting(false);
+        }
+      };
+
+      const handlePay = async () => {
+        setPaying(true);
+        try {
+          const res = await fetch(`${API}/public/quotes/${slug}/pay`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+          const data = await res.json();
+          if (data.url) window.location.href = data.url;
+          else alert(data.error || 'Payment not available');
+        } catch (err) {
+          alert('Payment setup failed');
+        } finally {
+          setPaying(false);
+        }
+      };
+
+      if (error) return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+            <h2>Quote not found</h2>
+            <p style={{ color: 'var(--text-muted)' }}>This quote may have expired or doesn't exist.</p>
+          </div>
+        </div>
+      );
+
+      if (!quote) return <div style={{ padding: 60, textAlign: 'center' }} className="pulse">Loading quote...</div>;
+
+      const isPaid = quote.status === 'paid' || justPaid;
+
+      return (
+        <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, var(--bg) 0%, #0f1410 100%)' }}>
+          <div className="fade-in" style={{ maxWidth: 600, margin: '0 auto', padding: '48px 24px' }}>
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: 40 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>Quote from</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{quote.businessName || 'SentQuote'}</div>
+            </div>
+
+            {isPaid && (
+              <div style={{ background: 'var(--accent-subtle)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center', marginBottom: 24 }}>
+                <div style={{ fontSize: 24 }}>✅</div>
+                <div style={{ fontWeight: 700, color: 'var(--accent)', marginTop: 8 }}>Payment received!</div>
+                <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 4 }}>Thank you — your payment has been confirmed.</div>
+              </div>
+            )}
+
+            <div className="card" style={{ padding: 32 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 24 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 700 }}>{quote.title}</h1>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>For {quote.clientName}</p>
+                </div>
+                <span className={`badge badge-${quote.status}`}>{isPaid ? 'paid' : quote.status}</span>
+              </div>
+
+              {quote.description && (
+                <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.7 }}>{quote.description}</p>
+              )}
+
+              {/* Line items */}
+              <div style={{ marginBottom: 24 }}>
+                {quote.lineItems.map((li, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{li.description}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{li.quantity} × ${li.unitPrice.toFixed(2)}</div>
+                    </div>
+                    <div style={{ fontFamily: 'var(--mono)', fontWeight: 500 }}>
+                      ${(li.quantity * li.unitPrice).toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Totals */}
+              <div style={{ borderTop: '2px solid var(--border)', paddingTop: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: 'var(--text-muted)' }}>
+                  <span>Subtotal</span><span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.subtotal)}</span>
+                </div>
+                {quote.taxAmount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: 'var(--text-muted)' }}>
+                    <span>Tax ({quote.taxRate}%)</span><span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.taxAmount)}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', fontSize: 22, fontWeight: 700 }}>
+                  <span>Total</span><span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.total)}</span>
+                </div>
+                {quote.depositAmount > 0 && !isPaid && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 14, color: 'var(--accent)', fontWeight: 600 }}>
+                    <span>Deposit due now ({quote.depositPercent}%)</span>
+                    <span style={{ fontFamily: 'var(--mono)' }}>{formatCents(quote.depositAmount)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              {quote.notes && (
+                <div style={{ marginTop: 24, padding: 16, background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>Notes</div>
+                  {quote.notes}
+                </div>
+              )}
+
+              {quote.validUntil && !isPaid && (
+                <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+                  Valid until {new Date(quote.validUntil).toLocaleDateString()}
+                </div>
+              )}
+
+              {/* Actions */}
+              {!isPaid && quote.status === 'sent' && (
+                <div style={{ marginTop: 32, display: 'flex', gap: 12 }}>
+                  <button className="btn btn-primary btn-lg" style={{ flex: 1, justifyContent: 'center' }} onClick={handleAccept} disabled={accepting}>
+                    {accepting ? 'Accepting...' : '✓ Accept Quote'}
+                  </button>
+                </div>
+              )}
+
+              {!isPaid && quote.status === 'accepted' && (
+                <div style={{ marginTop: 32 }}>
+                  <button className="btn btn-primary btn-lg" style={{ width: '100%', justifyContent: 'center' }} onClick={handlePay} disabled={paying}>
+                    {paying ? 'Setting up payment...' : `💳 Pay ${quote.depositAmount > 0 ? formatCents(quote.depositAmount) + ' deposit' : formatCents(quote.total)}`}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ textAlign: 'center', marginTop: 32, fontSize: 12, color: 'var(--text-dim)' }}>
+              Powered by <a href="/" style={{ color: 'var(--text-dim)' }}>⚡ SentQuote</a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // APP ROUTER
+    // =====================
+    function App() {
+      const { path, navigate } = useRoute();
+      const { user, loading } = useContext(AuthCtx);
+
+      if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="pulse">Loading...</div>;
+
+      // Public quote page
+      if (path.startsWith('/q/')) {
+        const slug = path.split('/q/')[1].split('?')[0];
+        return <PublicQuote slug={slug} />;
+      }
+
+      // Auth pages
+      if (path === '/login') return <AuthPage mode="login" navigate={navigate} />;
+      if (path === '/register') return <AuthPage mode="register" navigate={navigate} />;
+
+      // Protected routes
+      if (path.startsWith('/dashboard') || path.startsWith('/quotes')) {
+        if (!user) {
+          navigate('/login');
+          return null;
+        }
+        if (path === '/dashboard') return <Dashboard navigate={navigate} />;
+        if (path === '/quotes/new') return <QuoteBuilder navigate={navigate} quoteId="new" />;
+        if (path.match(/^\/quotes\/[^/]+\/edit$/)) {
+          const id = path.split('/quotes/')[1].split('/edit')[0];
+          return <QuoteBuilder navigate={navigate} quoteId={id} />;
+        }
+        if (path.match(/^\/quotes\/[^/]+$/)) {
+          const id = path.split('/quotes/')[1];
+          return <QuoteDetail navigate={navigate} quoteId={id} />;
+        }
+      }
+
+      // Landing
+      return <LandingPage navigate={navigate} />;
+    }
+
+    // Mount
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <AuthProvider><App /></AuthProvider>
+    );
+  </script>
+</body>
+</html>
