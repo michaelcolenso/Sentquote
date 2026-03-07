@@ -95,6 +95,17 @@
     input:focus, textarea:focus, select:focus {
       border-color: var(--accent);
     }
+    input::placeholder, textarea::placeholder {
+      color: var(--text-dim);
+      opacity: 1;
+    }
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      -webkit-text-fill-color: var(--text);
+      -webkit-box-shadow: 0 0 0px 1000px var(--surface) inset;
+      transition: background-color 5000s ease-in-out 0s;
+    }
     textarea { resize: vertical; min-height: 80px; }
     label {
       font-size: 13px;
@@ -119,6 +130,7 @@
     .badge-accepted { background: rgba(34,197,94,0.15); color: var(--accent); }
     .badge-paid { background: var(--accent); color: #000; }
     .badge-viewed { background: rgba(245,158,11,0.15); color: var(--warn); }
+    .badge-expired { background: rgba(239,68,68,0.15); color: var(--danger); }
 
     .card {
       background: var(--surface);
@@ -149,18 +161,48 @@
     // API HELPER
     // =====================
     const API = (typeof window !== 'undefined' && window.location.port === '5173')
-      ? 'http://localhost:3001/api'
-      : '/api';
+      ? 'http://localhost:3001/api/v1'
+      : '/api/v1';
 
     async function api(path, opts = {}) {
       const token = localStorage.getItem('sq_token');
-      const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+      const headers = { 
+        'Content-Type': 'application/json', 
+        'X-Request-Id': generateRequestId(),
+        ...(opts.headers || {}) 
+      };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`${API}${path}`, { ...opts, headers });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
-      return data;
+      try {
+        const res = await fetch(`${API}${path}`, { ...opts, headers });
+        const data = await res.json();
+        
+        // Handle rate limiting
+        if (res.status === 429) {
+          throw new Error('Too many requests. Please try again in a few minutes.');
+        }
+        
+        // Handle validation errors
+        if (res.status === 400 && data.details) {
+          const messages = data.details.map(d => d.message).join(', ');
+          throw new Error(messages);
+        }
+        
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      } catch (err) {
+        if (err.name === 'TypeError' && err.message.includes('fetch')) {
+          throw new Error('Network error. Please check your connection.');
+        }
+        throw err;
+      }
+    }
+
+    function generateRequestId() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
     }
 
     function formatCents(cents) {
@@ -415,20 +457,96 @@
               </div>
               <div>
                 <label>Password</label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
+                {mode === 'register' && password.length > 0 && password.length < 8 && (
+                  <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 4 }}>Password must be at least 8 characters</div>
+                )}
               </div>
               {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
-              <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+              <button 
+                className="btn btn-primary btn-lg" 
+                type="submit" 
+                disabled={loading || (mode === 'register' && password.length < 8)} 
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
                 {loading ? 'Please wait...' : mode === 'register' ? 'Create account' : 'Log in'}
               </button>
             </form>
 
+            {mode === 'login' && (
+              <p style={{ textAlign: 'center', marginTop: 12, fontSize: 13 }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); navigate('/forgot-password'); }}>Forgot password?</a>
+              </p>
+            )}
             <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14, color: 'var(--text-muted)' }}>
               {mode === 'register' ? (
                 <>Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/login'); }}>Log in</a></>
               ) : (
                 <>No account yet? <a href="#" onClick={(e) => { e.preventDefault(); navigate('/register'); }}>Sign up free</a></>
               )}
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // FORGOT PASSWORD
+    // =====================
+    function ForgotPasswordPage({ navigate }) {
+      const [email, setEmail] = useState('');
+      const [error, setError] = useState('');
+      const [success, setSuccess] = useState(false);
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+          setSuccess(true);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="card fade-in" style={{ width: '100%', maxWidth: 400 }}>
+            <div style={{ textAlign: 'center', marginBottom: 32 }}>
+              <span style={{ fontSize: 32, cursor: 'pointer' }} onClick={() => navigate('/')}>⚡</span>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginTop: 8 }}>Reset your password</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
+                Enter your email and we'll send you a reset link
+              </p>
+            </div>
+
+            {success ? (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>✉️</div>
+                <p style={{ color: 'var(--text-muted)' }}>If an account exists, a reset email has been sent.</p>
+                <button className="btn btn-secondary" style={{ marginTop: 20 }} onClick={() => navigate('/login')}>
+                  Back to login
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <label>Email</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" required />
+                </div>
+                {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+                <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center' }}>
+                  {loading ? 'Sending...' : 'Send reset link'}
+                </button>
+              </form>
+            )}
+
+            <p style={{ textAlign: 'center', marginTop: 20, fontSize: 14 }}>
+              <a href="#" onClick={(e) => { e.preventDefault(); navigate('/login'); }}>← Back to login</a>
             </p>
           </div>
         </div>
@@ -443,15 +561,37 @@
       const [quotes, setQuotes] = useState([]);
       const [stats, setStats] = useState(null);
       const [events, setEvents] = useState([]);
-      const [view, setView] = useState('list');
+      const [needsAttention, setNeedsAttention] = useState([]);
+      const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState('');
 
       useEffect(() => {
-        api('/quotes').then(d => setQuotes(d.quotes)).catch(console.error);
-        api('/stats').then(d => { setStats(d.stats); setEvents(d.recentEvents); }).catch(console.error);
-      }, []);
+        loadData();
+      }, [pagination.page]);
+
+      async function loadData() {
+        setLoading(true);
+        setError('');
+        try {
+          const [quotesData, statsData] = await Promise.all([
+            api(`/quotes?page=${pagination.page}&limit=${pagination.limit}`),
+            api('/dashboard/stats')
+          ]);
+          setQuotes(quotesData.quotes);
+          setPagination(quotesData.pagination);
+          setStats(statsData.stats);
+          setEvents(statsData.recentEvents);
+          setNeedsAttention(statsData.needsAttention || []);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
 
       const statusBadge = (status) => {
-        const map = { draft: 'badge-draft', sent: 'badge-sent', accepted: 'badge-accepted', paid: 'badge-paid' };
+        const map = { draft: 'badge-draft', sent: 'badge-sent', accepted: 'badge-accepted', paid: 'badge-paid', expired: 'badge-expired' };
         return <span className={`badge ${map[status] || 'badge-draft'}`}>{status}</span>;
       };
 
@@ -464,6 +604,7 @@
               <span style={{ fontSize: 16, fontWeight: 700 }}>SentQuote</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/settings')}>Settings</button>
               <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.email}</span>
               <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }}>Log out</button>
             </div>
@@ -476,7 +617,10 @@
                 <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>Dashboard</h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>{user?.businessName || 'Your quotes at a glance'}</p>
               </div>
-              <button className="btn btn-primary" onClick={() => navigate('/quotes/new')}>+ New Quote</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary" onClick={() => navigate('/templates')}>Templates</button>
+                <button className="btn btn-primary" onClick={() => navigate('/quotes/new')}>+ New Quote</button>
+              </div>
             </div>
 
             {/* Stats */}
@@ -517,12 +661,43 @@
               </div>
             )}
 
+            {/* Needs Attention */}
+            {needsAttention.length > 0 && (
+              <div className="card" style={{ marginBottom: 24, border: '1px solid var(--warn)', background: 'rgba(245,158,11,0.05)' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn)', marginBottom: 12 }}>⚡ Needs Attention</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {needsAttention.map(q => (
+                    <div key={q.id} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+                      <span style={{ flex: 1 }}>
+                        <strong>{q.client_name}</strong> viewed <strong>{q.title}</strong> {timeAgo(q.last_viewed_at)}
+                      </span>
+                      <span className="badge badge-viewed">{q.view_count} views</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Quotes list */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <h2 style={{ fontSize: 18, fontWeight: 600 }}>Quotes</h2>
+              {pagination.totalPages > 1 && (
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  Page {pagination.page} of {pagination.totalPages}
+                </span>
+              )}
             </div>
 
-            {quotes.length === 0 ? (
+            {loading ? (
+              <div className="card" style={{ textAlign: 'center', padding: '60px 24px' }}>
+                <div className="pulse">Loading quotes...</div>
+              </div>
+            ) : error ? (
+              <div className="card" style={{ textAlign: 'center', padding: '40px 24px', borderColor: 'var(--danger)' }}>
+                <div style={{ color: 'var(--danger)', marginBottom: 16 }}>{error}</div>
+                <button className="btn btn-secondary" onClick={loadData}>Try again</button>
+              </div>
+            ) : quotes.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '60px 24px' }}>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>📝</div>
                 <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No quotes yet</h3>
@@ -530,37 +705,62 @@
                 <button className="btn btn-primary" onClick={() => navigate('/quotes/new')}>Create your first quote</button>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {quotes.map(q => (
-                  <div
-                    key={q.id}
-                    className="card"
-                    style={{ padding: '16px 20px', cursor: 'pointer', transition: 'border-color 0.15s' }}
-                    onClick={() => navigate(`/quotes/${q.id}`)}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontWeight: 600 }}>{q.title}</span>
-                          {statusBadge(q.status)}
-                          {q.view_count > 0 && q.status === 'sent' && (
-                            <span className="badge badge-viewed">👁️ {q.view_count}</span>
-                          )}
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {quotes.map(q => (
+                    <div
+                      key={q.id}
+                      className="card"
+                      style={{ padding: '16px 20px', cursor: 'pointer', transition: 'border-color 0.15s' }}
+                      onClick={() => navigate(`/quotes/${q.id}`)}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontWeight: 600 }}>{q.title}</span>
+                            {statusBadge(q.status)}
+                            {q.view_count > 0 && q.status === 'sent' && (
+                              <span className="badge badge-viewed">👁️ {q.view_count}</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+                            {q.client_name} · {q.client_email}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-                          {q.client_name} · {q.client_email}
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 18 }}>{formatCents(q.total)}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{timeAgo(q.created_at)}</div>
                         </div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontFamily: 'var(--mono)', fontWeight: 600, fontSize: 18 }}>{formatCents(q.total)}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{timeAgo(q.created_at)}</div>
                       </div>
                     </div>
+                  ))}
+                </div>
+                
+                {/* Pagination */}
+                {pagination.totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 24 }}>
+                    <button 
+                      className="btn btn-secondary btn-sm"
+                      disabled={pagination.page <= 1}
+                      onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))}
+                    >
+                      ← Previous
+                    </button>
+                    <span style={{ display: 'flex', alignItems: 'center', padding: '0 16px', fontSize: 14, color: 'var(--text-muted)' }}>
+                      Page {pagination.page} of {pagination.totalPages}
+                    </span>
+                    <button 
+                      className="btn btn-secondary btn-sm"
+                      disabled={pagination.page >= pagination.totalPages}
+                      onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
+                    >
+                      Next →
+                    </button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -578,6 +778,11 @@
       });
       const [saving, setSaving] = useState(false);
       const [error, setError] = useState('');
+      const [templates, setTemplates] = useState([]);
+      const [selectedTemplate, setSelectedTemplate] = useState('');
+      const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+      const [templateName, setTemplateName] = useState('');
+      const [savingTemplate, setSavingTemplate] = useState(false);
 
       useEffect(() => {
         if (quoteId && quoteId !== 'new') {
@@ -593,6 +798,55 @@
           }).catch(console.error);
         }
       }, [quoteId]);
+
+      useEffect(() => {
+        // Load templates for new quotes
+        if (quoteId === 'new') {
+          api('/templates').then(d => setTemplates(d.templates)).catch(console.error);
+        }
+      }, [quoteId]);
+
+      const applyTemplate = (templateId) => {
+        const template = templates.find(t => t.id === templateId);
+        if (!template) return;
+        
+        setForm(f => ({
+          ...f,
+          lineItems: template.lineItems.map(li => ({ ...li })),
+          taxRate: template.taxRate,
+          depositPercent: template.depositPercent,
+          notes: template.notes,
+          description: template.description
+        }));
+        setSelectedTemplate(templateId);
+      };
+
+      const saveAsTemplate = async () => {
+        if (!templateName.trim()) return;
+        setSavingTemplate(true);
+        try {
+          await api('/templates', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: templateName,
+              description: form.description,
+              lineItems: form.lineItems,
+              taxRate: form.taxRate,
+              depositPercent: form.depositPercent,
+              notes: form.notes
+            })
+          });
+          setShowSaveTemplate(false);
+          setTemplateName('');
+          // Reload templates
+          const d = await api('/templates');
+          setTemplates(d.templates);
+        } catch (err) {
+          alert('Failed to save template: ' + err.message);
+        } finally {
+          setSavingTemplate(false);
+        }
+      };
 
       const addLine = () => setForm(f => ({ ...f, lineItems: [...f.lineItems, { description: '', quantity: 1, unitPrice: 0 }] }));
       const removeLine = (i) => setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }));
@@ -643,7 +897,61 @@
           </nav>
 
           <div className="fade-in" style={{ maxWidth: 700, margin: '32px auto', padding: '0 24px' }}>
-            <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>{quoteId === 'new' ? 'New Quote' : 'Edit Quote'}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <h1 style={{ fontSize: 24, fontWeight: 700 }}>{quoteId === 'new' ? 'New Quote' : 'Edit Quote'}</h1>
+              {quoteId === 'new' && templates.length > 0 && (
+                <select 
+                  value={selectedTemplate} 
+                  onChange={e => applyTemplate(e.target.value)}
+                  style={{ width: 200 }}
+                >
+                  <option value="">Load from template...</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {quoteId === 'new' && (
+              <div className="card" style={{ marginBottom: 20, background: 'var(--surface2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    💡 Save this quote setup as a template for future use
+                  </span>
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    onClick={() => setShowSaveTemplate(true)}
+                  >
+                    Save as Template
+                  </button>
+                </div>
+                
+                {showSaveTemplate && (
+                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    <input 
+                      placeholder="Template name" 
+                      value={templateName} 
+                      onChange={e => setTemplateName(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <button 
+                      className="btn btn-primary btn-sm" 
+                      onClick={saveAsTemplate}
+                      disabled={savingTemplate || !templateName.trim()}
+                    >
+                      {savingTemplate ? 'Saving...' : 'Save'}
+                    </button>
+                    <button 
+                      className="btn btn-ghost btn-sm" 
+                      onClick={() => setShowSaveTemplate(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="card" style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Client details</h3>
@@ -748,6 +1056,7 @@
       const [quote, setQuote] = useState(null);
       const [events, setEvents] = useState([]);
       const [copied, setCopied] = useState(false);
+      const [downloadingPdf, setDownloadingPdf] = useState(false);
 
       useEffect(() => {
         api(`/quotes/${quoteId}`).then(d => { setQuote(d.quote); setEvents(d.events); }).catch(console.error);
@@ -777,6 +1086,32 @@
         }
       };
 
+      const handleDownloadPdf = async () => {
+        setDownloadingPdf(true);
+        try {
+          const token = localStorage.getItem('sq_token');
+          const response = await fetch(`${API}/quotes/${quoteId}/pdf`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!response.ok) throw new Error('Failed to generate PDF');
+          
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `quote-${quote.slug}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        } catch (err) {
+          alert('Failed to download PDF: ' + err.message);
+        } finally {
+          setDownloadingPdf(false);
+        }
+      };
+
       const statusBadge = (status) => {
         const map = { draft: 'badge-draft', sent: 'badge-sent', accepted: 'badge-accepted', paid: 'badge-paid' };
         return <span className={`badge ${map[status]}`}>{status}</span>;
@@ -787,6 +1122,9 @@
           <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
             <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>← Dashboard</button>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+                {downloadingPdf ? 'Generating...' : '📄 PDF'}
+              </button>
               {quote.status === 'draft' && <button className="btn btn-secondary" onClick={() => navigate(`/quotes/${quoteId}/edit`)}>Edit</button>}
               {quote.status === 'draft' && <button className="btn btn-primary" onClick={handleSend}>Send Quote →</button>}
               <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={handleDelete}>Delete</button>
@@ -1053,6 +1391,458 @@
     }
 
     // =====================
+    // TEMPLATES PAGE
+    // =====================
+    function TemplatesPage({ navigate }) {
+      const { user } = useContext(AuthCtx);
+      const [templates, setTemplates] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState('');
+      const [showCreate, setShowCreate] = useState(false);
+      const [editingTemplate, setEditingTemplate] = useState(null);
+      const [form, setForm] = useState({
+        name: '',
+        description: '',
+        lineItems: [{ description: '', quantity: 1, unitPrice: 0 }],
+        taxRate: 0,
+        depositPercent: 50,
+        notes: ''
+      });
+
+      useEffect(() => {
+        loadTemplates();
+      }, []);
+
+      async function loadTemplates() {
+        setLoading(true);
+        try {
+          const d = await api('/templates');
+          setTemplates(d.templates);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      const addLine = () => setForm(f => ({ ...f, lineItems: [...f.lineItems, { description: '', quantity: 1, unitPrice: 0 }] }));
+      const removeLine = (i) => setForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }));
+      const updateLine = (i, field, val) => {
+        setForm(f => ({
+          ...f,
+          lineItems: f.lineItems.map((li, idx) => idx === i ? { ...li, [field]: val } : li)
+        }));
+      };
+
+      const handleCreate = async () => {
+        try {
+          await api('/templates', {
+            method: 'POST',
+            body: JSON.stringify(form)
+          });
+          setShowCreate(false);
+          resetForm();
+          loadTemplates();
+        } catch (err) {
+          alert('Failed to create template: ' + err.message);
+        }
+      };
+
+      const handleUpdate = async () => {
+        try {
+          await api(`/templates/${editingTemplate.id}`, {
+            method: 'PUT',
+            body: JSON.stringify(form)
+          });
+          setEditingTemplate(null);
+          resetForm();
+          loadTemplates();
+        } catch (err) {
+          alert('Failed to update template: ' + err.message);
+        }
+      };
+
+      const handleDelete = async (id) => {
+        if (!confirm('Delete this template?')) return;
+        try {
+          await api(`/templates/${id}`, { method: 'DELETE' });
+          loadTemplates();
+        } catch (err) {
+          alert('Failed to delete template: ' + err.message);
+        }
+      };
+
+      const resetForm = () => {
+        setForm({
+          name: '',
+          description: '',
+          lineItems: [{ description: '', quantity: 1, unitPrice: 0 }],
+          taxRate: 0,
+          depositPercent: 50,
+          notes: ''
+        });
+      };
+
+      const startEdit = (template) => {
+        setEditingTemplate(template);
+        setForm({
+          name: template.name,
+          description: template.description,
+          lineItems: template.lineItems.map(li => ({ ...li })),
+          taxRate: template.taxRate,
+          depositPercent: template.depositPercent,
+          notes: template.notes
+        });
+      };
+
+      const subtotal = form.lineItems.reduce((s, li) => s + (li.quantity * li.unitPrice), 0);
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
+              <span style={{ fontSize: 20 }}>⚡</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>SentQuote</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.email}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/dashboard')}>← Back</button>
+            </div>
+          </nav>
+
+          <div className="fade-in" style={{ maxWidth: 800, margin: '32px auto', padding: '0 24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <div>
+                <h1 style={{ fontSize: 24, fontWeight: 700 }}>Templates</h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Save time by reusing common quote setups</p>
+              </div>
+              <button className="btn btn-primary" onClick={() => { resetForm(); setShowCreate(true); }}>+ New Template</button>
+            </div>
+
+            {(showCreate || editingTemplate) && (
+              <div className="card" style={{ marginBottom: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+                  {editingTemplate ? 'Edit Template' : 'Create Template'}
+                </h3>
+                
+                <div style={{ marginBottom: 16 }}>
+                  <label>Template name *</label>
+                  <input 
+                    value={form.name} 
+                    onChange={e => setForm(f => ({...f, name: e.target.value}))} 
+                    placeholder="e.g., Website Design Package"
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label>Description</label>
+                  <textarea 
+                    value={form.description} 
+                    onChange={e => setForm(f => ({...f, description: e.target.value}))}
+                    placeholder="Brief description of this template..."
+                  />
+                </div>
+
+                <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Line Items</h4>
+                {form.lineItems.map((li, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 80px 120px 40px', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                    <input 
+                      value={li.description} 
+                      onChange={e => updateLine(i, 'description', e.target.value)} 
+                      placeholder="Service or item" 
+                    />
+                    <input 
+                      type="number" 
+                      min="1" 
+                      value={li.quantity} 
+                      onChange={e => updateLine(i, 'quantity', Number(e.target.value))} 
+                    />
+                    <input 
+                      type="number" 
+                      min="0" 
+                      step="0.01" 
+                      value={li.unitPrice} 
+                      onChange={e => updateLine(i, 'unitPrice', Number(e.target.value))} 
+                    />
+                    <button className="btn btn-ghost btn-sm" onClick={() => removeLine(i)}>✕</button>
+                  </div>
+                ))}
+                <button className="btn btn-secondary btn-sm" onClick={addLine} style={{ marginBottom: 16 }}>+ Add line item</button>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                  <div>
+                    <label>Tax rate (%)</label>
+                    <input 
+                      type="number" 
+                      value={form.taxRate} 
+                      onChange={e => setForm(f => ({...f, taxRate: Number(e.target.value)}))} 
+                    />
+                  </div>
+                  <div>
+                    <label>Deposit (%)</label>
+                    <input 
+                      type="number" 
+                      value={form.depositPercent} 
+                      onChange={e => setForm(f => ({...f, depositPercent: Number(e.target.value)}))} 
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label>Default notes</label>
+                  <textarea 
+                    value={form.notes} 
+                    onChange={e => setForm(f => ({...f, notes: e.target.value}))}
+                    placeholder="Default payment terms, timeline, etc..."
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={editingTemplate ? handleUpdate : handleCreate}
+                  >
+                    {editingTemplate ? 'Update Template' : 'Create Template'}
+                  </button>
+                  <button 
+                    className="btn btn-ghost" 
+                    onClick={() => { setShowCreate(false); setEditingTemplate(null); resetForm(); }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+                <div className="pulse">Loading templates...</div>
+              </div>
+            ) : error ? (
+              <div className="card" style={{ textAlign: 'center', padding: 40, borderColor: 'var(--danger)' }}>
+                <div style={{ color: 'var(--danger)' }}>{error}</div>
+              </div>
+            ) : templates.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: '60px 24px' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
+                <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No templates yet</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 20 }}>
+                  Create templates for common projects to save time on future quotes.
+                </p>
+                <button className="btn btn-primary" onClick={() => { resetForm(); setShowCreate(true); }}>
+                  Create your first template
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {templates.map(t => (
+                  <div key={t.id} className="card" style={{ padding: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                      <div>
+                        <h3 style={{ fontSize: 16, fontWeight: 600 }}>{t.name}</h3>
+                        {t.description && (
+                          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>{t.description}</p>
+                        )}
+                        <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 8 }}>
+                          {t.lineItems.length} line items • {t.taxRate}% tax • {t.depositPercent}% deposit
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className="btn btn-secondary btn-sm" 
+                          onClick={() => startEdit(t)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="btn btn-primary btn-sm" 
+                          onClick={() => navigate('/quotes/new')}
+                        >
+                          Use
+                        </button>
+                        <button 
+                          className="btn btn-ghost btn-sm" 
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => handleDelete(t.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
+    // SETTINGS PAGE
+    // ===================
+    function SettingsPage({ navigate }) {
+      const { user } = useContext(AuthCtx);
+      const [settings, setSettings] = useState({
+        notifyOnView: true,
+        notifyOnAccept: true,
+        notifyOnPay: true,
+        minViewIntervalMinutes: 60
+      });
+      const [loading, setLoading] = useState(true);
+      const [saving, setSaving] = useState(false);
+      const [saved, setSaved] = useState(false);
+
+      useEffect(() => {
+        loadSettings();
+      }, []);
+
+      async function loadSettings() {
+        try {
+          const data = await api('/auth/settings');
+          setSettings(data.settings);
+        } catch (err) {
+          console.error('Failed to load settings', err);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      async function saveSettings() {
+        setSaving(true);
+        setSaved(false);
+        try {
+          await api('/auth/settings', {
+            method: 'PUT',
+            body: JSON.stringify(settings)
+          });
+          setSaved(true);
+          setTimeout(() => setSaved(false), 2000);
+        } catch (err) {
+          alert('Failed to save settings');
+        } finally {
+          setSaving(false);
+        }
+      }
+
+      const Toggle = ({ label, description, checked, onChange }) => (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontWeight: 500 }}>{label}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{description}</div>
+          </div>
+          <button
+            onClick={() => onChange(!checked)}
+            style={{
+              width: 48,
+              height: 26,
+              borderRadius: 13,
+              border: 'none',
+              background: checked ? 'var(--accent)' : 'var(--surface2)',
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 3,
+              left: checked ? 25 : 3,
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              background: 'white',
+              transition: 'left 0.2s'
+            }} />
+          </button>
+        </div>
+      );
+
+      return (
+        <div style={{ minHeight: '100vh' }}>
+          {/* Top bar */}
+          <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 32px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
+              <span style={{ fontSize: 20 }}>⚡</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>SentQuote</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.email}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/dashboard')}>← Back</button>
+            </div>
+          </nav>
+
+          <div className="fade-in" style={{ maxWidth: 600, margin: '32px auto', padding: '0 24px' }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Settings</h1>
+            <p style={{ color: 'var(--text-muted)', marginBottom: 32 }}>Manage your notification preferences</p>
+
+            {loading ? (
+              <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+                <div className="pulse">Loading...</div>
+              </div>
+            ) : (
+              <>
+                <div className="card" style={{ marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>📧 Email Notifications</h3>
+                  
+                  <Toggle
+                    label="Quote viewed"
+                    description="Get notified when a client opens your quote"
+                    checked={settings.notifyOnView}
+                    onChange={(v) => setSettings(s => ({ ...s, notifyOnView: v }))}
+                  />
+                  
+                  <Toggle
+                    label="Quote accepted"
+                    description="Get notified when a client accepts your quote"
+                    checked={settings.notifyOnAccept}
+                    onChange={(v) => setSettings(s => ({ ...s, notifyOnAccept: v }))}
+                  />
+                  
+                  <Toggle
+                    label="Payment received"
+                    description="Get notified when a client pays your quote"
+                    checked={settings.notifyOnPay}
+                    onChange={(v) => setSettings(s => ({ ...s, notifyOnPay: v }))}
+                  />
+                </div>
+
+                <div className="card" style={{ marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>⚡ View Notification Rate Limit</h3>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                    Minimum time between view notifications for the same quote (prevents spam if someone refreshes repeatedly)
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input
+                      type="number"
+                      min="5"
+                      max="1440"
+                      value={settings.minViewIntervalMinutes}
+                      onChange={(e) => setSettings(s => ({ ...s, minViewIntervalMinutes: parseInt(e.target.value) || 60 }))}
+                      style={{ width: 100 }}
+                    />
+                    <span style={{ color: 'var(--text-muted)' }}>minutes</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={saveSettings}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save Settings'}
+                  </button>
+                  {saved && <span style={{ color: 'var(--accent)', fontSize: 14 }}>Settings saved successfully</span>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // =====================
     // APP ROUTER
     // =====================
     function App() {
@@ -1070,14 +1860,17 @@
       // Auth pages
       if (path === '/login') return <AuthPage mode="login" navigate={navigate} />;
       if (path === '/register') return <AuthPage mode="register" navigate={navigate} />;
+      if (path === '/forgot-password') return <ForgotPasswordPage navigate={navigate} />;
 
       // Protected routes
-      if (path.startsWith('/dashboard') || path.startsWith('/quotes')) {
+      if (path.startsWith('/dashboard') || path.startsWith('/quotes') || path === '/settings' || path === '/templates') {
         if (!user) {
           navigate('/login');
           return null;
         }
         if (path === '/dashboard') return <Dashboard navigate={navigate} />;
+        if (path === '/settings') return <SettingsPage navigate={navigate} />;
+        if (path === '/templates') return <TemplatesPage navigate={navigate} />;
         if (path === '/quotes/new') return <QuoteBuilder navigate={navigate} quoteId="new" />;
         if (path.match(/^\/quotes\/[^/]+\/edit$/)) {
           const id = path.split('/quotes/')[1].split('/edit')[0];
