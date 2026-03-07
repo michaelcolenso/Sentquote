@@ -6,14 +6,26 @@ const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 const { generateToken, authMiddleware } = require('./auth');
+const { sendQuoteToClient, sendOwnerNotification, sendFollowupEmail } = require('./email');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 // Stripe setup
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
+
+// Rate limiting
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
+});
 
 app.use(cors());
 app.use(express.json());
@@ -22,9 +34,33 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // =====================
+// FREE QUOTA MIDDLEWARE
+// =====================
+function enforceFreeQuota(req, res, next) {
+  const user = db.prepare('SELECT plan FROM users WHERE id = ?').get(req.user.id);
+  if (user && user.plan === 'pro') return next();
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { count } = db.prepare(
+    "SELECT COUNT(*) as count FROM quotes WHERE user_id = ? AND created_at >= ?"
+  ).get(req.user.id, startOfMonth.toISOString());
+
+  if (count >= 5) {
+    return res.status(403).json({
+      error: 'Free plan limit reached (5 quotes/month). Upgrade to Pro for unlimited quotes.',
+      upgrade: true,
+    });
+  }
+  next();
+}
+
+// =====================
 // AUTH ROUTES
 // =====================
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { email, password, businessName } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -49,7 +85,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -94,8 +130,8 @@ app.get('/api/quotes', authMiddleware, (req, res) => {
   res.json({ quotes: quotes.map(q => ({ ...q, lineItems: JSON.parse(q.line_items) })) });
 });
 
-// Create a new quote
-app.post('/api/quotes', authMiddleware, (req, res) => {
+// Create a new quote (enforces free tier quota)
+app.post('/api/quotes', authMiddleware, enforceFreeQuota, (req, res) => {
   try {
     const { clientName, clientEmail, title, description, lineItems, taxRate, depositPercent, validDays, notes } = req.body;
 
@@ -134,10 +170,12 @@ app.get('/api/quotes/:id', authMiddleware, (req, res) => {
   res.json({ quote: { ...quote, lineItems: JSON.parse(quote.line_items) }, events });
 });
 
-// Send quote (change status to sent)
+// Send quote (change status to sent + email client)
 app.post('/api/quotes/:id/send', authMiddleware, (req, res) => {
   const quote = db.prepare('SELECT * FROM quotes WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
 
   db.prepare("UPDATE quotes SET status = 'sent', updated_at = datetime('now') WHERE id = ?").run(req.params.id);
 
@@ -153,6 +191,10 @@ app.post('/api/quotes/:id/send', authMiddleware, (req, res) => {
   db.prepare("INSERT INTO followups (quote_id, scheduled_at, message) VALUES (?, ?, 'Wanted to make sure you saw my quote before it expires. Let me know if you need any changes!')").run(req.params.id, sevenDay);
 
   const updated = db.prepare('SELECT * FROM quotes WHERE id = ?').get(req.params.id);
+
+  // Email quote to client (non-blocking)
+  sendQuoteToClient(updated, user, BASE_URL).catch(err => console.error('[email error]', err));
+
   res.json({ quote: { ...updated, lineItems: JSON.parse(updated.line_items) } });
 });
 
@@ -203,6 +245,37 @@ app.delete('/api/quotes/:id', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
+// Clone quote (creates a draft copy)
+app.post('/api/quotes/:id/clone', authMiddleware, (req, res) => {
+  const original = db.prepare('SELECT * FROM quotes WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!original) return res.status(404).json({ error: 'Quote not found' });
+
+  const newId = uuidv4();
+  let newSlug = generateSlug();
+  // Ensure slug uniqueness
+  while (db.prepare('SELECT id FROM quotes WHERE slug = ?').get(newSlug)) {
+    newSlug = generateSlug();
+  }
+
+  db.prepare(`
+    INSERT INTO quotes (id, user_id, slug, client_name, client_email, title, description, line_items,
+      subtotal, tax_rate, tax_amount, total, currency, deposit_percent, deposit_amount,
+      valid_until, status, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+  `).run(
+    newId, original.user_id, newSlug,
+    original.client_name, original.client_email,
+    'Copy of ' + original.title,
+    original.description, original.line_items,
+    original.subtotal, original.tax_rate, original.tax_amount, original.total,
+    original.currency, original.deposit_percent, original.deposit_amount,
+    original.valid_until, original.notes
+  );
+
+  const cloned = db.prepare('SELECT * FROM quotes WHERE id = ?').get(newId);
+  res.json({ quote: { ...cloned, lineItems: JSON.parse(cloned.line_items) } });
+});
+
 // =====================
 // PUBLIC QUOTE ROUTES (client-facing)
 // =====================
@@ -210,12 +283,14 @@ app.delete('/api/quotes/:id', authMiddleware, (req, res) => {
 // View quote by slug (public)
 app.get('/api/public/quotes/:slug', (req, res) => {
   const quote = db.prepare(`
-    SELECT q.*, u.business_name, u.email as sender_email
+    SELECT q.*, u.business_name, u.email as sender_email, u.id as owner_id
     FROM quotes q JOIN users u ON q.user_id = u.id
     WHERE q.slug = ? AND q.status != 'draft'
   `).get(req.params.slug);
 
   if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+  const isFirstView = quote.view_count === 0;
 
   // Track view
   const now = new Date().toISOString();
@@ -232,6 +307,12 @@ app.get('/api/public/quotes/:slug', (req, res) => {
     req.ip || req.headers['x-forwarded-for'] || 'unknown',
     req.headers['user-agent'] || 'unknown'
   );
+
+  // Notify owner on first view only (avoid spam on repeat opens)
+  if (isFirstView) {
+    const owner = { email: quote.sender_email, business_name: quote.business_name };
+    sendOwnerNotification('viewed', quote, owner, BASE_URL).catch(err => console.error('[email error]', err));
+  }
 
   res.json({
     quote: {
@@ -269,6 +350,12 @@ app.post('/api/public/quotes/:slug/accept', (req, res) => {
   // Cancel pending followups
   db.prepare("UPDATE followups SET status = 'cancelled' WHERE quote_id = ? AND status = 'pending'").run(quote.id);
 
+  // Notify owner
+  const owner = db.prepare('SELECT email, business_name FROM users WHERE id = ?').get(quote.user_id);
+  if (owner) {
+    sendOwnerNotification('accepted', quote, owner, BASE_URL).catch(err => console.error('[email error]', err));
+  }
+
   res.json({ ok: true, message: 'Quote accepted!' });
 });
 
@@ -289,7 +376,6 @@ app.post('/api/public/quotes/:slug/pay', async (req, res) => {
   if (!quote) return res.status(404).json({ error: 'Quote not available for payment' });
 
   const payAmount = quote.deposit_amount > 0 ? quote.deposit_amount : quote.total;
-  const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
 
   try {
     const sessionParams = {
@@ -306,8 +392,8 @@ app.post('/api/public/quotes/:slug/pay', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `${baseUrl}/q/${quote.slug}?paid=true`,
-      cancel_url: `${baseUrl}/q/${quote.slug}?cancelled=true`,
+      success_url: `${BASE_URL}/q/${quote.slug}?paid=true`,
+      cancel_url: `${BASE_URL}/q/${quote.slug}?cancelled=true`,
       metadata: {
         quote_id: quote.id,
         quote_slug: quote.slug,
@@ -359,6 +445,34 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), (req
       );
 
       db.prepare("UPDATE followups SET status = 'cancelled' WHERE quote_id = ? AND status = 'pending'").run(quoteId);
+
+      // Notify owner of payment
+      const paidQuote = db.prepare('SELECT * FROM quotes WHERE id = ?').get(quoteId);
+      if (paidQuote) {
+        const owner = db.prepare('SELECT email, business_name FROM users WHERE id = ?').get(paidQuote.user_id);
+        if (owner) {
+          sendOwnerNotification('paid', paidQuote, owner, BASE_URL).catch(err => console.error('[email error]', err));
+        }
+      }
+    }
+  }
+
+  // Handle subscription lifecycle to enforce plan gating
+  if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
+    const sub = event.data.object;
+    if (sub.status === 'active' && sub.metadata?.user_id) {
+      db.prepare("UPDATE users SET plan = 'pro', updated_at = datetime('now') WHERE id = ?")
+        .run(sub.metadata.user_id);
+      console.log(`[billing] User ${sub.metadata.user_id} upgraded to pro`);
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const sub = event.data.object;
+    if (sub.metadata?.user_id) {
+      db.prepare("UPDATE users SET plan = 'free', updated_at = datetime('now') WHERE id = ?")
+        .run(sub.metadata.user_id);
+      console.log(`[billing] User ${sub.metadata.user_id} downgraded to free`);
     }
   }
 
@@ -404,11 +518,10 @@ app.post('/api/stripe/connect', authMiddleware, async (req, res) => {
     const account = await stripe.accounts.create({ type: 'express' });
     db.prepare('UPDATE users SET stripe_account_id = ? WHERE id = ?').run(account.id, req.user.id);
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
     const accountLink = await stripe.accountLinks.create({
       account: account.id,
-      refresh_url: `${baseUrl}/dashboard/settings`,
-      return_url: `${baseUrl}/dashboard/settings?stripe=connected`,
+      refresh_url: `${BASE_URL}/dashboard/settings`,
+      return_url: `${BASE_URL}/dashboard/settings?stripe=connected`,
       type: 'account_onboarding',
     });
 
@@ -426,7 +539,6 @@ app.post('/api/billing/checkout', authMiddleware, async (req, res) => {
   if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -438,16 +550,17 @@ app.post('/api/billing/checkout', authMiddleware, async (req, res) => {
             name: 'SentQuote Pro',
             description: 'Unlimited quotes, payment collection, auto follow-ups',
           },
-          unit_amount: 2900, // $29/month
+          unit_amount: 2900,
           recurring: { interval: 'month' },
         },
         quantity: 1,
       }],
       mode: 'subscription',
-      success_url: `${baseUrl}/dashboard?upgraded=true`,
-      cancel_url: `${baseUrl}/dashboard/settings`,
+      success_url: `${BASE_URL}/dashboard?upgraded=true`,
+      cancel_url: `${BASE_URL}/dashboard`,
       customer_email: user.email,
       metadata: { user_id: user.id },
+      subscription_data: { metadata: { user_id: user.id } },
     });
 
     res.json({ url: session.url });
@@ -466,6 +579,57 @@ app.get('/{*path}', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 SentQuote server running on port ${PORT}`);
+  startFollowupScheduler();
 });
+
+// =====================
+// FOLLOW-UP EMAIL SCHEDULER
+// =====================
+function startFollowupScheduler() {
+  if (!process.env.SMTP_HOST) {
+    console.log('[scheduler] SMTP not configured — follow-up scheduler disabled');
+    return;
+  }
+
+  async function runScheduler() {
+    try {
+      const due = db.prepare(`
+        SELECT f.*, q.client_email, q.client_name, q.title, q.slug, q.status, q.total,
+               u.email as owner_email, u.business_name, u.id as owner_id
+        FROM followups f
+        JOIN quotes q ON f.quote_id = q.id
+        JOIN users u ON q.user_id = u.id
+        WHERE f.status = 'pending'
+          AND f.scheduled_at <= datetime('now')
+          AND q.status = 'sent'
+      `).all();
+
+      for (const row of due) {
+        const followup = { id: row.id, message: row.message };
+        const quote = {
+          id: row.quote_id, client_email: row.client_email, client_name: row.client_name,
+          title: row.title, slug: row.slug, total: row.total,
+        };
+        const user = { email: row.owner_email, business_name: row.business_name };
+
+        try {
+          await sendFollowupEmail(followup, quote, user, BASE_URL);
+          db.prepare("UPDATE followups SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(row.id);
+          db.prepare("INSERT INTO quote_events (quote_id, event_type) VALUES (?, 'followup_sent')").run(row.quote_id);
+          console.log(`[scheduler] Follow-up sent for quote ${row.quote_id}`);
+        } catch (err) {
+          console.error(`[scheduler] Failed to send follow-up ${row.id}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] Error:', err.message);
+    }
+  }
+
+  // Run immediately on startup, then every 5 minutes
+  runScheduler();
+  setInterval(runScheduler, 5 * 60 * 1000);
+  console.log('[scheduler] Follow-up scheduler started (runs every 5 minutes)');
+}
 
 module.exports = app;
